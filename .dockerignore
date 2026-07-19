@@ -1,0 +1,11 @@
+.env
+.env.docker
+.git
+.pytest_cache
+.venv
+__pycache__
+*.db
+*.sqlite3
+*.pem
+docs
+tests

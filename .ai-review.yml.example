@@ -1,0 +1,14 @@
+enabled: true
+auto_review: true
+review_drafts: false
+review_bot_prs: false
+include_branches:
+  - "*"
+exclude_paths:
+  - "vendor/**"
+  - "dist/**"
+  - "**/*.min.js"
+max_files: 20
+max_changed_lines: 2000
+review_language: "zh-CN"
+minimum_severity: "low"

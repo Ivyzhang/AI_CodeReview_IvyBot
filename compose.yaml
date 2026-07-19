@@ -1,0 +1,28 @@
+services:
+  review:
+    build: .
+    env_file:
+      - ${APP_ENV_FILE:-.env.docker}
+    environment:
+      DATABASE_PATH: /data/review.sqlite3
+      GITHUB_APP_PRIVATE_KEY_PATH: /run/secrets/github-app.pem
+    volumes:
+      - .:/app
+      - review-data:/data
+      - ${GITHUB_APP_PRIVATE_KEY_HOST_PATH}:/run/secrets/github-app.pem:ro
+    ports:
+      - "127.0.0.1:8787:8787"
+    command:
+      - uvicorn
+      - app.main:create_app_from_env
+      - --factory
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8787"
+      - --reload
+      - --log-level
+      - debug
+
+volumes:
+  review-data:
