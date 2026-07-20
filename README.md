@@ -78,3 +78,7 @@ Webhook 业务状态包括 `accepted`、`duplicate`、`existing`、`ignored` 和
 .venv/bin/python -m pytest -q
 .venv/bin/python -m compileall -q app
 ```
+
+## CI
+
+GitHub Actions 在每个 Pull Request 的创建、更新、重新打开和转为 Ready for review 时运行 Python 3.12 测试，并在旧任务仍运行时自动取消旧检查。CI 只安装项目依赖、执行业务测试和 Python 编译检查，不读取 `.env`、GitHub App 私钥或模型密钥。

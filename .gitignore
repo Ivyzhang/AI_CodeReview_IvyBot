@@ -1,6 +1,7 @@
 .env
 .env.docker
 .env.*.local
+.env.local
 .venv/
 *.db
 *.sqlite3
