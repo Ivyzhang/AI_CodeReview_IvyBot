@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
+import fnmatch
 
 import httpx
 
@@ -68,6 +69,22 @@ class ReviewService:
             ref=pr["base"]["ref"],
         )
         policy = parse_policy(policy_text)
+        if not policy.enabled or (
+            task.trigger_mode is TriggerMode.AUTOMATIC and not policy.auto_review
+        ):
+            self._supersede(task)
+            return
+        base_ref = pr["base"]["ref"]
+        if not any(fnmatch.fnmatch(base_ref, pattern) for pattern in policy.include_branches):
+            self._supersede(task)
+            return
+        if task.trigger_mode is TriggerMode.AUTOMATIC:
+            if pr.get("draft") and not policy.review_drafts:
+                self._supersede(task)
+                return
+            if pr.get("user", {}).get("type") == "Bot" and not policy.review_bot_prs:
+                self._supersede(task)
+                return
         raw_files = self.github.list_pr_files(
             task.installation_id, task.owner, task.repo, task.pull_number
         )

@@ -14,12 +14,14 @@ SECRET = "secret"
 class GitHub:
     def __init__(self):
         self.get_pr_calls = 0
+        self.get_file_calls = 0
 
     def get_pr(self, *args):
         self.get_pr_calls += 1
         return {"head": {"sha": "abc123", "ref": "feature"}, "base": {"ref": "main"}}
 
     def get_repository_file(self, *args, **kwargs):
+        self.get_file_calls += 1
         return None
 
 
@@ -135,3 +137,12 @@ def test_ordinary_pr_comment_is_ignored_without_github_lookup(tmp_path) -> None:
         "status": "ignored"
     }
     assert github.get_pr_calls == 0
+
+
+def test_automatic_webhook_persists_without_policy_github_lookup(tmp_path) -> None:
+    store = TaskStore(tmp_path / "db.sqlite3")
+    github = GitHub()
+    client = TestClient(create_app(store, github, SECRET, start_worker=False))
+
+    assert post(client, payload(), delivery="auto").json() == {"status": "accepted"}
+    assert github.get_file_calls == 0

@@ -13,7 +13,6 @@ from app.config import Settings
 from app.events import ALLOWED_ASSOCIATIONS, COMMAND_RE, task_from_event
 from app.github import GitHubAppTokens, GitHubClient
 from app.models import RepositoryPolicy, TriggerMode
-from app.policy import PolicyError, parse_policy
 from app.review import OpenAIModelClient, ReviewEngine
 from app.service import ReviewService
 from app.storage import TaskStore
@@ -140,32 +139,7 @@ def create_app(
             except httpx.HTTPError as exc:
                 raise HTTPException(status_code=503, detail="github unavailable") from exc
             manual_sha = pr["head"]["sha"]
-            base_ref = pr["base"]["ref"]
-        else:
-            base_ref = (payload.get("pull_request") or {}).get("base", {}).get("ref")
-        try:
-            policy_text = (
-                github.get_repository_file(
-                    installation, owner, repo, ".ai-review.yml", ref=base_ref
-                )
-                if base_ref
-                else None
-            )
-            policy = parse_policy(policy_text)
-        except PolicyError:
-            if event == "issue_comment" and manual_sha:
-                try:
-                    github.create_comment(
-                        int(installation),
-                        owner,
-                        repo,
-                        int((payload.get("issue") or {}).get("number", 0)),
-                        "AI Review 配置无效，请检查默认分支上的 .ai-review.yml。",
-                    )
-                except Exception:
-                    pass
-            counters["ignored"] += 1
-            return {"status": "ignored"}
+        policy = RepositoryPolicy()
 
         draft = task_from_event(event, payload, policy, manual_head_sha=manual_sha)
         if draft is None:
