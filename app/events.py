@@ -52,6 +52,7 @@ def task_from_event(
             head_sha=pull["head"]["sha"],
             trigger_mode=TriggerMode.AUTOMATIC,
             trigger=action,
+            trigger_actor_type=(payload.get("sender") or {}).get("type", ""),
         )
 
     if event != "issue_comment" or payload.get("action") != "created":

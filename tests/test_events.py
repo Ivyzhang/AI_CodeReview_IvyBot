@@ -22,6 +22,7 @@ def test_supported_pr_event_creates_automatic_task() -> None:
     assert task is not None
     assert task.trigger_mode is TriggerMode.AUTOMATIC
     assert task.head_sha == "abc123"
+    assert task.trigger_actor_type == "User"
 
 
 def test_draft_and_bot_pr_follow_policy() -> None:
