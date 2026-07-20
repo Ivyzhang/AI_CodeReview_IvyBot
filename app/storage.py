@@ -226,11 +226,27 @@ class TaskStore:
     def tasks_since(self, installation_id: int, since: datetime) -> int:
         with self._connect() as connection:
             row = connection.execute(
-                """SELECT COUNT(*) AS count FROM tasks
+                """SELECT COALESCE(SUM(CASE WHEN attempt_count = 0 THEN 1
+                       ELSE attempt_count END), 0) AS count FROM tasks
                    WHERE installation_id = ? AND created_at >= ?""",
                 (installation_id, _iso(since)),
             ).fetchone()
         return int(row["count"])
+
+    def requeue(self, task_id: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """UPDATE tasks SET status = ?, started_at = NULL, finished_at = NULL
+                   WHERE id = ? AND status = ?""",
+                (TaskStatus.QUEUED.value, task_id, TaskStatus.FAILED.value),
+            )
+
+    def status_counts(self) -> dict[str, int]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT status, COUNT(*) AS count FROM tasks GROUP BY status"
+            ).fetchall()
+        return {str(row["status"]): int(row["count"]) for row in rows}
 
     def record_repositories(
         self,
@@ -283,6 +299,22 @@ class TaskStore:
                 (installation_id, repository_id),
             ).fetchone()
         return row is None or bool(row["active"])
+
+    def can_publish(self, task_id: str) -> bool:
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT t.status, i.active AS installation_active,
+                          r.active AS repository_active
+                   FROM tasks t
+                   LEFT JOIN installations i ON i.installation_id = t.installation_id
+                   LEFT JOIN repositories r ON r.installation_id = t.installation_id
+                                             AND r.repository_id = t.repository_id
+                   WHERE t.id = ?""",
+                (task_id,),
+            ).fetchone()
+        if row is None or row["status"] != TaskStatus.RUNNING.value:
+            return False
+        return row["installation_active"] != 0 and row["repository_active"] != 0
 
 
     def _get_with(self, connection: sqlite3.Connection, task_id: str) -> ReviewTask:

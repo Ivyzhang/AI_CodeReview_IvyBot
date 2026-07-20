@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 
 import httpx
 
 from app.context import ChangedFile, build_context
 from app.github import InlinePositionError
-from app.models import Finding, ReviewTask, TaskStatus, TriggerMode
+from app.models import Finding, ReviewTask, Severity, TaskStatus, TriggerMode
 from app.policy import PolicyError, parse_policy
 from app.review import ReviewEngine, build_prompt, validate_findings
 from app.storage import TaskStore
@@ -33,6 +34,7 @@ class ReviewService:
         max_patch_chars: int = 6000,
         max_input_chars: int = 60_000,
         max_comments: int = 20,
+        max_task_seconds: float = 300,
     ) -> None:
         self.store = store
         self.github = github
@@ -40,6 +42,7 @@ class ReviewService:
         self.max_patch_chars = max_patch_chars
         self.max_input_chars = max_input_chars
         self.max_comments = max_comments
+        self.max_task_seconds = max_task_seconds
 
     def process(self, task: ReviewTask) -> None:
         try:
@@ -50,6 +53,7 @@ class ReviewService:
             raise
 
     def _process(self, task: ReviewTask) -> None:
+        started = time.monotonic()
         pr = self.github.get_pr(
             task.installation_id, task.owner, task.repo, task.pull_number
         )
@@ -84,6 +88,7 @@ class ReviewService:
             max_patch_chars=self.max_patch_chars,
             max_input_chars=self.max_input_chars,
         )
+        self._ensure_time(started)
         prompt = build_prompt(
             context,
             metadata={
@@ -98,10 +103,17 @@ class ReviewService:
             language=policy.review_language,
         )
         result = self.engine.review(prompt)
+        self._ensure_time(started)
         valid, invalid = validate_findings(
-            result, context.line_map, max_comments=self.max_comments
+            result,
+            context.line_map,
+            max_comments=self.max_comments,
+            minimum_severity=policy.minimum_severity,
         )
 
+        if not self.store.can_publish(task.id):
+            self.store.set_status(task.id, TaskStatus.FAILED)
+            return
         if not self._head_is_current(task):
             self._supersede(task)
             return
@@ -121,6 +133,19 @@ class ReviewService:
         if existing_id:
             self.store.record_publish(
                 task.id, marker, github_review_id=existing_id, mode="inline_review"
+            )
+            self._complete(task)
+            return
+        existing_comment_id = self.github.find_comment_by_marker(
+            task.installation_id,
+            task.owner,
+            task.repo,
+            task.pull_number,
+            marker,
+        )
+        if existing_comment_id:
+            self.store.record_publish(
+                task.id, marker, github_comment_id=existing_comment_id, mode="fallback_comment"
             )
             self._complete(task)
             return
@@ -177,11 +202,32 @@ class ReviewService:
                 marker,
             )
             if not existing_id:
+                existing_comment_id = self.github.find_comment_by_marker(
+                    task.installation_id,
+                    task.owner,
+                    task.repo,
+                    task.pull_number,
+                    marker,
+                )
+                if existing_comment_id:
+                    self.store.record_publish(
+                        task.id,
+                        marker,
+                        github_comment_id=existing_comment_id,
+                        mode="fallback_comment",
+                    )
+                    self._complete(task)
+                    return
+            if not existing_id:
                 raise
             self.store.record_publish(
                 task.id, marker, github_review_id=existing_id, mode="inline_review"
             )
         self._complete(task)
+
+    def _ensure_time(self, started: float) -> None:
+        if time.monotonic() - started > self.max_task_seconds:
+            raise TimeoutError("review task exceeded total time limit")
 
     def _head_is_current(self, task: ReviewTask) -> bool:
         pr = self.github.get_pr(

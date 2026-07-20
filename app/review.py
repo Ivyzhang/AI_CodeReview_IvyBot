@@ -6,7 +6,7 @@ from typing import Protocol
 import httpx
 
 from app.context import ReviewContext
-from app.models import Finding, ReviewResult
+from app.models import Finding, ReviewResult, Severity
 
 
 class ModelClient(Protocol):
@@ -126,10 +126,17 @@ def validate_findings(
     line_map: dict[str, set[int]],
     *,
     max_comments: int,
+    minimum_severity: Severity = Severity.LOW,
 ) -> tuple[list[Finding], list[Finding]]:
     valid: list[Finding] = []
     invalid: list[Finding] = []
-    for finding in result.comments[:max_comments]:
+    rank = {Severity.LOW: 0, Severity.MEDIUM: 1, Severity.HIGH: 2}
+    eligible = [
+        finding
+        for finding in result.comments
+        if rank[finding.severity] >= rank[minimum_severity]
+    ]
+    for finding in eligible[:max_comments]:
         target = valid if finding.line in line_map.get(finding.path, set()) else invalid
         target.append(finding)
     return valid, invalid

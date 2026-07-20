@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
+import httpx
 from datetime import UTC, datetime, timedelta
 
 from app.service import ReviewService
@@ -42,13 +44,29 @@ class ReviewWorker:
         self.alive = True
         try:
             while not self._stop.is_set():
+                self.store.recover_stale(
+                    before=datetime.now(UTC) - self.stale_after
+                )
                 task = self.store.claim_next()
                 if task is None:
                     self._stop.wait(self.poll_seconds)
                     continue
                 try:
                     self.service.process(task)
-                except Exception:
+                except Exception as exc:
                     log.exception("review task failed: %s", task.id)
+                    if task.attempt_count < 3 and self._retryable_error(exc):
+                        self._stop.wait(min(2 ** task.attempt_count, 30))
+                        self.store.requeue(task.id)
         finally:
             self.alive = False
+
+    @staticmethod
+    def _retryable_error(exc: Exception) -> bool:
+        # The service logs the original exception; the worker only retries
+        # transient network/rate-limit failures in the current process.
+        if isinstance(exc, (httpx.TimeoutException, httpx.NetworkError)):
+            return True
+        if isinstance(exc, httpx.HTTPStatusError):
+            return exc.response.status_code == 429 or exc.response.status_code >= 500
+        return False
