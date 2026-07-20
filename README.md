@@ -1,4 +1,4 @@
-# GitHub AI Review
+# GitHub AI Code Review Ivybot
 
 基于 GitHub App 的单实例 AI Code Review 服务。服务持久接收 GitHub Webhook，审查 Pull Request patch，校验模型返回的文件与 diff 行号，并通过一次 GitHub Review 写回结果。
 
