@@ -1,13 +1,19 @@
 .env
 .env.docker
+.env.*.local
 .venv/
 *.db
 *.sqlite3
+review-data/
 __pycache__/
 .pytest_cache/
 *.py[cod]
 *.egg-info/
 *.pem
+.DS_Store
+.codex/
+.agents/
+*.log
 
 # Local design sources and agent session artifacts
 design.md
