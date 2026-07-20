@@ -141,7 +141,13 @@ def create_app(
             manual_sha = pr["head"]["sha"]
         policy = RepositoryPolicy()
 
-        draft = task_from_event(event, payload, policy, manual_head_sha=manual_sha)
+        draft = task_from_event(
+            event,
+            payload,
+            policy,
+            manual_head_sha=manual_sha,
+            apply_policy=False,
+        )
         if draft is None:
             counters["ignored"] += 1
             return {"status": "ignored"}
