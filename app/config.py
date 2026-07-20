@@ -23,3 +23,5 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = Field(default=0.5, gt=0)
     stale_task_minutes: int = Field(default=10, gt=0)
     installation_daily_task_limit: int = Field(default=200, gt=0)
+    max_task_seconds: int = Field(default=300, gt=0)
+    max_webhook_body_bytes: int = Field(default=1_000_000, gt=0)

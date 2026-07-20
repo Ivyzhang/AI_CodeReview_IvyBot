@@ -6,10 +6,11 @@ import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
 
 from app.config import Settings
-from app.events import task_from_event
+from app.events import ALLOWED_ASSOCIATIONS, COMMAND_RE, task_from_event
 from app.github import GitHubAppTokens, GitHubClient
 from app.models import RepositoryPolicy, TriggerMode
 from app.policy import PolicyError, parse_policy
@@ -34,6 +35,7 @@ def create_app(
     poll_seconds: float = 0.5,
     stale_minutes: int = 10,
     installation_daily_task_limit: int = 200,
+    max_webhook_body_bytes: int = 1_000_000,
 ) -> FastAPI:
     worker = (
         ReviewWorker(
@@ -66,6 +68,8 @@ def create_app(
     @app.post("/hook", status_code=202)
     async def hook(request: Request) -> dict[str, str]:
         body = await request.body()
+        if len(body) > max_webhook_body_bytes:
+            raise HTTPException(status_code=413, detail="webhook body too large")
         if not _valid_signature(
             body, request.headers.get("X-Hub-Signature-256", ""), webhook_secret
         ):
@@ -120,7 +124,21 @@ def create_app(
 
         manual_sha = None
         if event == "issue_comment" and "pull_request" in (payload.get("issue") or {}):
-            pr = github.get_pr(installation, owner, repo, int(payload["issue"]["number"]))
+            comment = payload.get("comment") or {}
+            body_text = (comment.get("body") or "").strip()
+            if (
+                payload.get("action") != "created"
+                or not COMMAND_RE.match(body_text)
+                or comment.get("author_association", "").upper()
+                not in ALLOWED_ASSOCIATIONS
+                or payload.get("sender", {}).get("type") == "Bot"
+            ):
+                counters["ignored"] += 1
+                return {"status": "ignored"}
+            try:
+                pr = github.get_pr(installation, owner, repo, int(payload["issue"]["number"]))
+            except httpx.HTTPError as exc:
+                raise HTTPException(status_code=503, detail="github unavailable") from exc
             manual_sha = pr["head"]["sha"]
             base_ref = pr["base"]["ref"]
         else:
@@ -135,6 +153,17 @@ def create_app(
             )
             policy = parse_policy(policy_text)
         except PolicyError:
+            if event == "issue_comment" and manual_sha:
+                try:
+                    github.create_comment(
+                        int(installation),
+                        owner,
+                        repo,
+                        int((payload.get("issue") or {}).get("number", 0)),
+                        "AI Review 配置无效，请检查默认分支上的 .ai-review.yml。",
+                    )
+                except Exception:
+                    pass
             counters["ignored"] += 1
             return {"status": "ignored"}
 
@@ -189,7 +218,9 @@ def create_app(
 
     @app.get("/metrics")
     def metrics() -> Response:
+        counts = store.status_counts()
         lines = [f"review_queue_depth {store.depth()}"]
+        lines.extend(f"review_tasks{{status=\"{key}\"}} {value}" for key, value in counts.items())
         lines.extend(f"review_webhooks_total{{status=\"{key}\"}} {value}" for key, value in counters.items())
         return Response("\n".join(lines) + "\n", media_type="text/plain")
 
@@ -216,6 +247,7 @@ def create_app_from_env() -> FastAPI:
         max_patch_chars=settings.max_patch_chars,
         max_input_chars=settings.max_input_chars,
         max_comments=settings.max_comments,
+        max_task_seconds=settings.max_task_seconds,
     )
     return create_app(
         store,
@@ -225,4 +257,5 @@ def create_app_from_env() -> FastAPI:
         poll_seconds=settings.worker_poll_seconds,
         stale_minutes=settings.stale_task_minutes,
         installation_daily_task_limit=settings.installation_daily_task_limit,
+        max_webhook_body_bytes=settings.max_webhook_body_bytes,
     )

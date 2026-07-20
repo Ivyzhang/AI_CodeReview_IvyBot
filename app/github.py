@@ -130,13 +130,42 @@ class GitHubClient:
         number: int,
         marker: str,
     ) -> int | None:
-        reviews = self._request(
-            "GET", installation_id, f"/repos/{owner}/{repo}/pulls/{number}/reviews"
-        ).json()
         needle = f"<!-- ai-review:{marker} -->"
-        for review in reviews:
-            if needle in (review.get("body") or ""):
-                return int(review["id"])
+        for page in range(1, 11):
+            reviews = self._request(
+                "GET",
+                installation_id,
+                f"/repos/{owner}/{repo}/pulls/{number}/reviews",
+                params={"per_page": 100, "page": page},
+            ).json()
+            for review in reviews:
+                if needle in (review.get("body") or ""):
+                    return int(review["id"])
+            if len(reviews) < 100:
+                break
+        return None
+
+    def find_comment_by_marker(
+        self,
+        installation_id: int,
+        owner: str,
+        repo: str,
+        number: int,
+        marker: str,
+    ) -> int | None:
+        needle = f"<!-- ai-review:{marker} -->"
+        for page in range(1, 11):
+            comments = self._request(
+                "GET",
+                installation_id,
+                f"/repos/{owner}/{repo}/issues/{number}/comments",
+                params={"per_page": 100, "page": page},
+            ).json()
+            for comment in comments:
+                if needle in (comment.get("body") or ""):
+                    return int(comment["id"])
+            if len(comments) < 100:
+                break
         return None
 
     def create_review(
@@ -163,7 +192,10 @@ class GitHubClient:
                 },
             )
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 422:
+            message = (exc.response.json().get("message") or "").lower()
+            if exc.response.status_code == 422 and any(
+                word in message for word in ("line", "position", "side", "diff")
+            ):
                 raise InlinePositionError("GitHub rejected inline positions") from exc
             raise
         return int(response.json()["id"])

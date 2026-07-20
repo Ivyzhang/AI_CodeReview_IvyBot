@@ -58,3 +58,18 @@ def test_invalid_locations_are_separated_from_inline_findings() -> None:
     valid, invalid = validate_findings(result, context().line_map, max_comments=2)
     assert [item.body for item in valid] == ["valid"]
     assert [item.body for item in invalid] == ["bad line"]
+
+
+def test_validate_findings_applies_minimum_severity() -> None:
+    result = ReviewResult(
+        summary="summary",
+        comments=[
+            Finding(path="src/api.py", line=10, severity=Severity.LOW, body="low"),
+            Finding(path="src/api.py", line=10, severity=Severity.HIGH, body="high"),
+        ],
+    )
+    valid, invalid = validate_findings(
+        result, {"src/api.py": {10}}, max_comments=20, minimum_severity=Severity.HIGH
+    )
+    assert [item.body for item in valid] == ["high"]
+    assert invalid == []

@@ -44,6 +44,9 @@ def test_automatic_events_for_same_head_share_task(tmp_path) -> None:
 def test_new_delivery_requeues_failed_task_for_same_head(tmp_path) -> None:
     store = TaskStore(tmp_path / "review.sqlite3")
     first = store.accept("delivery-1", "pull_request", draft())
+    old_created_at = store._connect().execute(
+        "SELECT created_at FROM tasks WHERE id = ?", (first.task.id,)
+    ).fetchone()["created_at"]
     store.set_status(first.task.id, TaskStatus.FAILED)
 
     retried = store.accept("delivery-2", "pull_request", draft())
@@ -52,6 +55,10 @@ def test_new_delivery_requeues_failed_task_for_same_head(tmp_path) -> None:
     assert retried.task.id == first.task.id
     assert retried.task.status is TaskStatus.QUEUED
     assert store.depth() == 1
+    new_created_at = store._connect().execute(
+        "SELECT created_at FROM tasks WHERE id = ?", (first.task.id,)
+    ).fetchone()["created_at"]
+    assert new_created_at != old_created_at
 
 
 def test_new_delivery_does_not_requeue_completed_task(tmp_path) -> None:
