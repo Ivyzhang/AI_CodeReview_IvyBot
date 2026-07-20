@@ -122,7 +122,25 @@ class TaskStore:
             ).fetchone()
             if existing:
                 task = self._task(existing)
-                status = AcceptStatus.EXISTING
+                if task.status is TaskStatus.FAILED:
+                    connection.execute(
+                        """UPDATE tasks
+                           SET status = ?, trigger = ?, focus = ?, user_initiated = ?,
+                               source_comment_id = ?, started_at = NULL, finished_at = NULL
+                           WHERE id = ?""",
+                        (
+                            TaskStatus.QUEUED.value,
+                            draft.trigger,
+                            draft.normalized_focus,
+                            int(draft.user_initiated),
+                            draft.source_comment_id,
+                            task.id,
+                        ),
+                    )
+                    task = self._get_with(connection, task.id)
+                    status = AcceptStatus.ACCEPTED
+                else:
+                    status = AcceptStatus.EXISTING
             else:
                 task_id = uuid.uuid4().hex
                 connection.execute(

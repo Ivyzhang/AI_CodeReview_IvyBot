@@ -41,6 +41,30 @@ def test_automatic_events_for_same_head_share_task(tmp_path) -> None:
     assert second.task.id == first.task.id
 
 
+def test_new_delivery_requeues_failed_task_for_same_head(tmp_path) -> None:
+    store = TaskStore(tmp_path / "review.sqlite3")
+    first = store.accept("delivery-1", "pull_request", draft())
+    store.set_status(first.task.id, TaskStatus.FAILED)
+
+    retried = store.accept("delivery-2", "pull_request", draft())
+
+    assert retried.status is AcceptStatus.ACCEPTED
+    assert retried.task.id == first.task.id
+    assert retried.task.status is TaskStatus.QUEUED
+    assert store.depth() == 1
+
+
+def test_new_delivery_does_not_requeue_completed_task(tmp_path) -> None:
+    store = TaskStore(tmp_path / "review.sqlite3")
+    first = store.accept("delivery-1", "pull_request", draft())
+    store.set_status(first.task.id, TaskStatus.COMPLETED)
+
+    repeated = store.accept("delivery-2", "pull_request", draft())
+
+    assert repeated.status is AcceptStatus.EXISTING
+    assert repeated.task.status is TaskStatus.COMPLETED
+
+
 def test_manual_focus_creates_distinct_tasks(tmp_path) -> None:
     store = TaskStore(tmp_path / "review.sqlite3")
 
