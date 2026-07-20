@@ -10,7 +10,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
 
 from app.config import Settings
-from app.events import task_from_event
+from app.events import ALLOWED_ASSOCIATIONS, COMMAND_RE, task_from_event
 from app.github import GitHubAppTokens, GitHubClient
 from app.models import RepositoryPolicy, TriggerMode
 from app.policy import PolicyError, parse_policy
@@ -124,6 +124,17 @@ def create_app(
 
         manual_sha = None
         if event == "issue_comment" and "pull_request" in (payload.get("issue") or {}):
+            comment = payload.get("comment") or {}
+            body_text = (comment.get("body") or "").strip()
+            if (
+                payload.get("action") != "created"
+                or not COMMAND_RE.match(body_text)
+                or comment.get("author_association", "").upper()
+                not in ALLOWED_ASSOCIATIONS
+                or payload.get("sender", {}).get("type") == "Bot"
+            ):
+                counters["ignored"] += 1
+                return {"status": "ignored"}
             try:
                 pr = github.get_pr(installation, owner, repo, int(payload["issue"]["number"]))
             except httpx.HTTPError as exc:

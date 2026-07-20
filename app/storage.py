@@ -126,7 +126,8 @@ class TaskStore:
                     connection.execute(
                         """UPDATE tasks
                            SET status = ?, trigger = ?, focus = ?, user_initiated = ?,
-                               source_comment_id = ?, started_at = NULL, finished_at = NULL
+                               source_comment_id = ?, created_at = ?,
+                               started_at = NULL, finished_at = NULL
                            WHERE id = ?""",
                         (
                             TaskStatus.QUEUED.value,
@@ -134,6 +135,7 @@ class TaskStore:
                             draft.normalized_focus,
                             int(draft.user_initiated),
                             draft.source_comment_id,
+                            _iso(),
                             task.id,
                         ),
                     )

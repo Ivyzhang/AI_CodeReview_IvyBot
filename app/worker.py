@@ -58,6 +58,8 @@ class ReviewWorker:
                     if task.attempt_count < 3 and self._retryable_error(exc):
                         self._stop.wait(min(2 ** task.attempt_count, 30))
                         self.store.requeue(task.id)
+                    else:
+                        self.service.notify_failure(task)
         finally:
             self.alive = False
 

@@ -12,7 +12,11 @@ SECRET = "secret"
 
 
 class GitHub:
+    def __init__(self):
+        self.get_pr_calls = 0
+
     def get_pr(self, *args):
+        self.get_pr_calls += 1
         return {"head": {"sha": "abc123", "ref": "feature"}, "base": {"ref": "main"}}
 
     def get_repository_file(self, *args, **kwargs):
@@ -112,3 +116,22 @@ def test_removed_repository_blocks_new_reviews(tmp_path) -> None:
         "status": "accepted"
     }
     assert post(client, payload(), delivery="d2").json() == {"status": "ignored"}
+
+
+def test_ordinary_pr_comment_is_ignored_without_github_lookup(tmp_path) -> None:
+    store = TaskStore(tmp_path / "db.sqlite3")
+    github = GitHub()
+    client = TestClient(create_app(store, github, SECRET, start_worker=False))
+    ordinary = {
+        "action": "created",
+        "installation": {"id": 7},
+        "repository": {"id": 11, "full_name": "acme/api"},
+        "issue": {"number": 3, "pull_request": {}},
+        "comment": {"id": 99, "body": "ordinary discussion", "author_association": "MEMBER"},
+        "sender": {"type": "User"},
+    }
+
+    assert post(client, ordinary, delivery="ordinary", event="issue_comment").json() == {
+        "status": "ignored"
+    }
+    assert github.get_pr_calls == 0

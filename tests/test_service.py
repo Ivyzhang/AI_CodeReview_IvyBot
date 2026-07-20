@@ -1,3 +1,6 @@
+import httpx
+import pytest
+
 from app.context import ChangedFile
 from app.github import InlinePositionError
 from app.models import Finding, ReviewResult, Severity, TaskStatus, TriggerMode
@@ -135,3 +138,22 @@ def test_installation_revocation_during_model_stops_publish(tmp_path) -> None:
     assert github.reviews == []
     assert github.comments == []
     assert store.get(current.id).status is TaskStatus.FAILED
+
+
+def test_service_does_not_notify_manual_failure_before_retry_decision(tmp_path) -> None:
+    store = TaskStore(tmp_path / "db.sqlite3")
+    github = GitHub(["abc123"])
+
+    class FailingEngine:
+        def review(self, prompt: str):
+            raise httpx.ConnectError("temporary")
+
+    service = ReviewService(store, github, FailingEngine())
+    current = task(store).model_copy(
+        update={"trigger_mode": TriggerMode.MANUAL, "user_initiated": True}
+    )
+
+    with pytest.raises(httpx.ConnectError):
+        service.process(current)
+
+    assert github.comments == []

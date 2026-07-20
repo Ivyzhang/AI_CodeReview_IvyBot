@@ -49,7 +49,6 @@ class ReviewService:
             self._process(task)
         except Exception:
             self.store.set_status(task.id, TaskStatus.FAILED)
-            self._notify_failure(task)
             raise
 
     def _process(self, task: ReviewTask) -> None:
@@ -257,7 +256,7 @@ class ReviewService:
                 "confused",
             )
 
-    def _notify_failure(self, task: ReviewTask) -> None:
+    def notify_failure(self, task: ReviewTask) -> None:
         if task.trigger_mode is not TriggerMode.MANUAL:
             return
         try:
