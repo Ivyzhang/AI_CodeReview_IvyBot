@@ -22,11 +22,22 @@ def test_supported_pr_event_creates_automatic_task() -> None:
     assert task is not None
     assert task.trigger_mode is TriggerMode.AUTOMATIC
     assert task.head_sha == "abc123"
+    assert task.trigger_actor_type == "User"
 
 
 def test_draft_and_bot_pr_follow_policy() -> None:
     assert task_from_event("pull_request", pr_payload(draft=True), RepositoryPolicy()) is None
     assert task_from_event("pull_request", pr_payload(sender_type="Bot"), RepositoryPolicy()) is None
+
+
+def test_webhook_parse_can_skip_repository_policy_filters() -> None:
+    task = task_from_event(
+        "pull_request",
+        pr_payload(action="synchronize", draft=True, sender_type="Bot"),
+        RepositoryPolicy(),
+        apply_policy=False,
+    )
+    assert task is not None
 
 
 def test_authorized_review_command_keeps_focus() -> None:

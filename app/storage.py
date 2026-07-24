@@ -62,6 +62,7 @@ class TaskStore:
                     head_sha TEXT NOT NULL,
                     trigger_mode TEXT NOT NULL,
                     trigger TEXT NOT NULL,
+                    trigger_actor_type TEXT NOT NULL DEFAULT '',
                     focus TEXT NOT NULL,
                     user_initiated INTEGER NOT NULL,
                     source_comment_id INTEGER,
@@ -101,6 +102,14 @@ class TaskStore:
                 ON tasks(status, created_at);
                 """
             )
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(tasks)").fetchall()
+            }
+            if "trigger_actor_type" not in columns:
+                connection.execute(
+                    "ALTER TABLE tasks ADD COLUMN trigger_actor_type TEXT NOT NULL DEFAULT ''"
+                )
 
     def accept(
         self, delivery_id: str, event_type: str, draft: ReviewTaskDraft
@@ -125,13 +134,14 @@ class TaskStore:
                 if task.status is TaskStatus.FAILED:
                     connection.execute(
                         """UPDATE tasks
-                           SET status = ?, trigger = ?, focus = ?, user_initiated = ?,
+                           SET status = ?, trigger = ?, trigger_actor_type = ?, focus = ?, user_initiated = ?,
                                source_comment_id = ?, created_at = ?,
                                started_at = NULL, finished_at = NULL
                            WHERE id = ?""",
                         (
                             TaskStatus.QUEUED.value,
                             draft.trigger,
+                            draft.trigger_actor_type,
                             draft.normalized_focus,
                             int(draft.user_initiated),
                             draft.source_comment_id,
@@ -150,8 +160,8 @@ class TaskStore:
                     INSERT INTO tasks (
                         id, idempotency_key, installation_id, repository_id,
                         owner, repo, pull_number, head_sha, trigger_mode, trigger,
-                        focus, user_initiated, source_comment_id, status, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        trigger_actor_type, focus, user_initiated, source_comment_id, status, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         task_id,
@@ -164,6 +174,7 @@ class TaskStore:
                         draft.head_sha,
                         draft.trigger_mode.value,
                         draft.trigger,
+                        draft.trigger_actor_type,
                         draft.normalized_focus,
                         int(draft.user_initiated),
                         draft.source_comment_id,
@@ -338,6 +349,7 @@ class TaskStore:
                 "head_sha": row["head_sha"],
                 "trigger_mode": row["trigger_mode"],
                 "trigger": row["trigger"],
+                "trigger_actor_type": row["trigger_actor_type"],
                 "focus": row["focus"],
                 "user_initiated": bool(row["user_initiated"]),
                 "source_comment_id": row["source_comment_id"],

@@ -39,6 +39,7 @@ class ReviewTaskDraft(BaseModel):
     head_sha: str = Field(min_length=1)
     trigger_mode: TriggerMode
     trigger: str = Field(min_length=1)
+    trigger_actor_type: str = ""
     focus: str = ""
     user_initiated: bool = False
     source_comment_id: int | None = None

@@ -16,8 +16,9 @@ def task_from_event(
     policy: RepositoryPolicy,
     *,
     manual_head_sha: str | None = None,
+    apply_policy: bool = True,
 ) -> ReviewTaskDraft | None:
-    if not policy.enabled:
+    if apply_policy and not policy.enabled:
         return None
     repository = payload.get("repository") or {}
     installation = payload.get("installation") or {}
@@ -29,17 +30,18 @@ def task_from_event(
     if event == "pull_request":
         pull = payload.get("pull_request") or {}
         action = payload.get("action", "")
-        allowed = {"opened", "reopened", "ready_for_review"}
-        if policy.auto_review:
-            allowed.add("synchronize")
+        allowed = {"opened", "reopened", "ready_for_review", "synchronize"}
+        if apply_policy and not policy.auto_review:
+            allowed.discard("synchronize")
+        if apply_policy and pull.get("draft") and not policy.review_drafts:
+            return None
+        if apply_policy and payload.get("sender", {}).get("type") == "Bot" and not policy.review_bot_prs:
+            return None
+        if apply_policy:
+            base_ref = pull.get("base", {}).get("ref", "")
+            if not any(fnmatch.fnmatch(base_ref, pattern) for pattern in policy.include_branches):
+                return None
         if action not in allowed:
-            return None
-        if pull.get("draft") and not policy.review_drafts:
-            return None
-        if payload.get("sender", {}).get("type") == "Bot" and not policy.review_bot_prs:
-            return None
-        base_ref = pull.get("base", {}).get("ref", "")
-        if not any(fnmatch.fnmatch(base_ref, pattern) for pattern in policy.include_branches):
             return None
         return ReviewTaskDraft(
             installation_id=int(installation["id"]),
@@ -50,6 +52,7 @@ def task_from_event(
             head_sha=pull["head"]["sha"],
             trigger_mode=TriggerMode.AUTOMATIC,
             trigger=action,
+            trigger_actor_type=(payload.get("sender") or {}).get("type", ""),
         )
 
     if event != "issue_comment" or payload.get("action") != "created":
